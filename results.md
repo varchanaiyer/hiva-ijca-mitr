@@ -51,39 +51,43 @@ We tested **4 different ways** to measure layer similarity (and thus penalize re
 - InfoNCE: ~0.5347 (collapsed)
 
 **Contradiction Rate (bottom middle) — lower is better:**
-- **CKA: lowest contradiction rate** — the most logically consistent model
-- Baseline and CLUB are similar
-- Cosine and InfoNCE have higher contradiction rates
+- **CLUB: lowest contradiction rate** (~0.462) — but at a significant accuracy cost (-5.2%)
+- **CKA** matches Baseline (~0.476) while preserving accuracy — the best trade-off
+- **Cosine** and **InfoNCE** both have *higher* contradiction rates than the Baseline (~0.498 and ~0.512 respectively), meaning they actually hurt logical consistency
 
 ## Key takeaways
 
-### CKA is the best strategy for logical consistency
+### CKA offers the best accuracy-consistency trade-off
 
-Even though CKA has slightly lower accuracy than Cosine, it produces the **most logically consistent** model (lowest contradiction rate). This is exactly what we predicted — CKA measures *structural* similarity between layers, not just point-wise similarity. Two layers that learn the same information in a rotated coordinate system will look different to Cosine but identical to CKA.
+CKA maintains near-Baseline accuracy (~0.641 vs 0.648) and matches the Baseline contradiction rate (~0.476) — while being the most stable during training. It doesn't *hurt* consistency the way Cosine and InfoNCE do, and it doesn't tank accuracy the way CLUB does.
 
-For logical reasoning, this matters: each deduction step needs to be *truly* independent, not just superficially different.
+CLUB technically achieves the lowest contradiction rate (~0.462), but at a steep accuracy cost (-5.2%). That's not a useful trade-off in practice.
 
-### Stability matters
+### Parameter-free methods are far more stable
 
-The parameter-free methods (CKA and Cosine) are far more stable than the learned methods (CLUB and InfoNCE). This makes sense — CLUB and InfoNCE add extra networks that need their own training, which can conflict with the main task.
+CKA and Cosine produce smooth, predictable training curves. CLUB and InfoNCE add extra learnable networks that fight with the main task loss — CLUB diverges early before recovering, and InfoNCE never stabilizes. For a regularization technique, stability is critical.
+
+### Cosine similarity is misleading for redundancy
+
+Cosine *raises* the contradiction rate compared to Baseline (~0.498 vs 0.476). This makes sense: cosine only measures point-wise angular similarity. Two layers can learn the same information in a rotated basis and look "different" to cosine — so the penalty doesn't catch real redundancy. CKA, which compares representational *geometry* across the batch, avoids this pitfall.
 
 ### Summary table
 
 | Model | Accuracy | Contradiction Rate | Stability |
 |-------|----------|-------------------|-----------|
-| Baseline | ~0.648 | Medium | N/A |
-| MITR-CLUB | ~0.596 | Medium | Unstable early |
-| MITR-InfoNCE | ~0.535 | High | Very unstable |
-| MITR-Cosine | ~0.649 | Higher | Stable |
-| **MITR-CKA** | **~0.641** | **Lowest** | **Most stable** |
+| Baseline | ~0.648 | ~0.476 | N/A |
+| MITR-CLUB | ~0.596 | **~0.462 (lowest)** | Unstable early |
+| MITR-InfoNCE | ~0.535 | ~0.512 (worst) | Very unstable |
+| MITR-Cosine | ~0.649 | ~0.498 | Stable |
+| **MITR-CKA** | **~0.641** | **~0.476** | **Most stable** |
 
 ### Bottom line
 
 If you care about **accuracy only** -> Cosine (or just Baseline)
 
-If you care about **logical consistency** -> CKA is the clear winner
+If you care about **logical consistency at any cost** -> CLUB gets the lowest contradiction rate, but sacrifices ~5% accuracy
 
-If you care about **both** -> CKA gives you the best trade-off (tiny accuracy drop for the biggest consistency gain)
+If you care about **the best trade-off** -> CKA preserves accuracy while not degrading consistency, and trains the most stably — it's the safest and most principled choice
 
 ## Setup
 
