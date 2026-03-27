@@ -2,7 +2,7 @@
 
 ## Why BERT and RoBERTa?
 
-Our DistilBERT experiments showed that MITR-CKA offers the best accuracy-consistency trade-off. But DistilBERT is a small (66M), 6-layer model distilled *from* BERT. Two questions remained:
+Our DistilBERT experiments showed that MITR-InfoNCE offers the best accuracy-consistency trade-off. But DistilBERT is a small (66M), 6-layer model distilled *from* BERT. Two questions remained:
 
 1. **Does MITR work on BERT itself?** BERT is the *teacher* model — 12 layers, 110M params. If MITR helps here, the layer redundancy problem exists at the source, not just in distilled models.
 
@@ -20,83 +20,98 @@ With 12 layers, there are **10 MI penalty terms** (vs 4 for DistilBERT) — more
 
 ![MITR BERT & RoBERTa Results](roberta_results.png)
 
-We ran 3 configurations per backbone: Baseline, MITR-Cosine, and MITR-CKA. We skipped CLUB and InfoNCE since they were unstable on DistilBERT's 6 layers — no point testing on 12.
+We ran 3 configurations per backbone: Baseline, MITR-Cosine, and MITR-CKA. We skipped CLUB and InfoNCE since CLUB diverges completely on DistilBERT — no point scaling to 12 layers.
 
 ### BERT-base-uncased
 
 **Validation Accuracy (top left):**
-- All three methods converge to similar accuracy (~0.71-0.72)
-- Cosine dips mid-training but recovers
-- CKA tracks smoothly alongside the Baseline throughout
+- All three methods show noisy convergence with a sharp peak around epoch 2–3 before settling
+- Baseline and Cosine are volatile mid-training, while CKA converges more smoothly in later epochs
+- CKA ends highest; Cosine recovers after a mid-training dip
 
 **Final Accuracy:**
-- Baseline: ~0.714
-- MITR-Cosine: ~0.711
-- MITR-CKA: ~0.718 — slight improvement over Baseline
+- Baseline: 0.6940
+- MITR-Cosine: 0.6987 — +0.47%
+- MITR-CKA: **0.7027** — **+0.87%, best for BERT**
 
 **Contradiction Rate (bottom left) — lower is better:**
-- Baseline: ~0.446
-- MITR-Cosine: ~0.454 — *worse* than Baseline (same pattern as DistilBERT)
-- MITR-CKA: ~0.434 — **best**, reduces contradictions by ~1.2%
+- Baseline: 0.4160
+- MITR-Cosine: 0.4480 — **+3.20% worse than Baseline**
+- MITR-CKA: 0.4560 — **+4.00% worse than Baseline, worst of all**
+
+Both strategies make BERT's logical consistency significantly worse. MITR regularization increases BERT's contradiction rate for both methods tested.
 
 ### RoBERTa-base
 
 **Validation Accuracy (top middle):**
-- All three methods show steady improvement across epochs
-- CKA consistently tracks at or above Baseline
-- RoBERTa reaches higher accuracy than BERT overall (more data, better pretraining)
+- Cosine jumps quickly and pulls ahead of Baseline from epoch 2 onward, continuing to rise through epoch 5
+- CKA starts very slowly (~0.640 at epoch 1), rises steadily but never catches Baseline or Cosine by epoch 5
+- Baseline shows steady improvement then plateaus around epoch 4
 
 **Final Accuracy:**
-- Baseline: ~0.735
-- MITR-Cosine: ~0.731
-- MITR-CKA: ~0.740 — slight improvement over Baseline
+- RoBERTa Baseline: 0.7027
+- MITR-Cosine: **0.7220** — **+1.93%, best for RoBERTa**
+- MITR-CKA: 0.6953 — −0.73%, the only result below Baseline
 
 **Contradiction Rate (bottom middle) — lower is better:**
-- Baseline: ~0.440
-- MITR-Cosine: ~0.448 — again *worse* than Baseline
-- MITR-CKA: ~0.426 — **best**, reduces contradictions by ~1.4%
+- RoBERTa Baseline: 0.5400
+- MITR-Cosine: **0.5080** — **+3.20% reduction, best**
+- MITR-CKA: 0.5140 — +2.60% reduction
+
+Both strategies improve RoBERTa's logical consistency, the opposite of what they do to BERT.
 
 ## Key findings
 
-### 1. MITR-CKA improves both accuracy AND consistency on larger models
+### 1. Results are strongly backbone-dependent — there is no universal winner
 
-On DistilBERT, CKA merely *preserved* Baseline accuracy and consistency. On BERT and RoBERTa, it actually **improves both**. With 12 layers (10 MI terms vs 4), there's more redundancy for CKA to catch — and the penalty is averaged over more pairs, giving smoother gradients.
+The effect of MITR on logical consistency reverses between BERT and RoBERTa:
 
-### 2. The Cosine failure pattern is universal
+| Model | Strategy | Acc Delta | Contra Delta |
+|-------|----------|-----------|-------------|
+| BERT | MITR-Cosine | +0.47% | −3.20% (worse) |
+| BERT | MITR-CKA | +0.87% | −4.00% (worse) |
+| RoBERTa | MITR-Cosine | +1.93% | +3.20% (better) |
+| RoBERTa | MITR-CKA | −0.73% | +2.60% (better) |
 
-Cosine similarity raises the contradiction rate on all three models (DistilBERT, BERT, RoBERTa). This confirms it's not a fluke — cosine only measures point-wise angular similarity, so it can't detect when two layers learn the same information in a rotated basis. CKA, which compares representational geometry, catches this every time.
+No single strategy dominates across both backbones on both metrics. Any claim that MITR is universally beneficial or detrimental would be premature.
 
-### 3. MITR is training-paradigm agnostic
+### 2. MITR hurts BERT's logical consistency
 
-RoBERTa's pretraining is fundamentally different from BERT's: no NSP, dynamic masking, BPE tokenizer, 10x more data. MITR-CKA still works. The layer redundancy problem is **universal to transformers**, not an artifact of any specific pretraining recipe.
+For BERT, both Cosine and CKA significantly increase the contradiction rate (by 3.20% and 4.00% respectively). The MI penalty may be interfering with structures that BERT's MLM+NSP pretraining already established for cross-sentence consistency. CKA is the worst offender here — it improves accuracy most (+0.87%) but at the steepest consistency cost.
 
-### 4. More layers = bigger MITR effect
+### 3. MITR-Cosine is the strongest overall result on RoBERTa
 
-| Model | Layers | MI Terms | CKA Acc Change | CKA Contra Reduction |
-|-------|--------|----------|----------------|---------------------|
-| DistilBERT | 6 | 4 | -0.7% | 0.0% |
-| BERT | 12 | 10 | +0.4% | +1.2% |
-| RoBERTa | 12 | 10 | +0.5% | +1.4% |
+Cosine achieves the best outcome of any configuration tested: highest accuracy across both backbones (0.7220, +1.93% vs RoBERTa Baseline) AND the largest contradiction reduction (+3.20%). RoBERTa, trained without NSP and on 10× more data, appears to benefit more from explicit inter-layer diversity pressure.
 
-The trend is clear: MITR-CKA gets *more effective* with more layers. This makes sense — more layers means more chances for adjacent layers to waste capacity on redundant computations.
+### 4. MITR-CKA gives mixed results
+
+CKA's behaviour is the most inconsistent:
+- BERT: best accuracy (+0.87%), worst consistency (−4.00%)
+- RoBERTa: worst accuracy (−0.73%), second-best consistency (+2.60%)
+
+CKA cannot be recommended as a reliable strategy based on these results.
+
+### 5. Cosine is more consistent across backbones than CKA
+
+Cosine improves accuracy on both BERT (+0.47%) and RoBERTa (+1.93%), and provides meaningful contradiction reduction on RoBERTa (+3.20%). On BERT it worsens consistency, but less severely than CKA. If a single strategy must be chosen for a 12-layer model, Cosine is the safer bet.
 
 ## Summary table
 
-| Model | Accuracy | Contradiction Rate | vs Baseline Acc | vs Baseline Contra |
-|-------|----------|-------------------|-----------------|-------------------|
-| **BERT Baseline** | ~0.714 | ~0.446 | -- | -- |
-| BERT MITR-Cosine | ~0.711 | ~0.454 | -0.3% | -0.8% (worse) |
-| **BERT MITR-CKA** | **~0.718** | **~0.434** | **+0.4%** | **+1.2% (better)** |
+| Model | Accuracy | Acc Delta | Contradiction Rate | Contra Delta |
+|-------|----------|-----------|--------------------|-------------|
+| **BERT Baseline** | 0.6940 | — | 0.4160 | — |
+| BERT MITR-Cosine | 0.6987 | +0.47% | 0.4480 | −3.20% (worse) |
+| **BERT MITR-CKA** | **0.7027** | **+0.87%** | 0.4560 | −4.00% (worse) |
 | | | | | |
-| **RoBERTa Baseline** | ~0.735 | ~0.440 | -- | -- |
-| RoBERTa MITR-Cosine | ~0.731 | ~0.448 | -0.4% | -0.8% (worse) |
-| **RoBERTa MITR-CKA** | **~0.740** | **~0.426** | **+0.5%** | **+1.4% (better)** |
+| **RoBERTa Baseline** | 0.7027 | — | 0.5400 | — |
+| **RoBERTa MITR-Cosine** | **0.7220** | **+1.93%** | **0.5080** | **+3.20% (better)** |
+| RoBERTa MITR-CKA | 0.6953 | −0.73% | 0.5140 | +2.60% (better) |
 
 ## For the paper
 
-This experiment upgrades the story from a single-model observation to a **generalizable finding**:
+The honest framing of this experiment:
 
-> *"MITR-CKA improves logical consistency across model sizes (66M–125M), architectures (DistilBERT, BERT, RoBERTa), and pretraining paradigms (distillation, MLM+NSP, MLM-only). The effect scales with model depth: 12-layer models benefit more than 6-layer models, consistent with deeper networks having more opportunity for inter-layer redundancy."*
+> *"MITR's effect on logical consistency is backbone-dependent. On RoBERTa-base, MITR-Cosine improves both accuracy (+1.93%) and contradiction rate (+3.20% reduction), making it the strongest result in our study. On BERT-base, however, both Cosine and CKA increase the contradiction rate (by 3.20% and 4.00% respectively), despite improving accuracy. This reversal suggests the benefit of explicit inter-layer diversity pressure may depend on what consistency structure the backbone's pretraining has already established — a direction that warrants further investigation."*
 
 ## Setup
 
@@ -107,4 +122,4 @@ This experiment upgrades the story from a single-model observation to a **genera
 - Batch size: 32 (grad accumulation 2 = effective 64)
 - MI lambda: 0.01 (200-step warmup)
 - Precision: BF16
-- MI strategies tested: Cosine, CKA (CLUB/InfoNCE excluded — unstable on DistilBERT)
+- MI strategies tested: Cosine, CKA (CLUB excluded — diverges; InfoNCE excluded — skipped for scope)

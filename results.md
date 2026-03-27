@@ -28,66 +28,72 @@ We tested **4 different ways** to measure layer similarity (and thus penalize re
 ### What the charts show
 
 **Training Loss (top left):**
-- Cosine and CKA track closely with the Baseline — they don't destabilize training
-- CLUB diverges early (loss goes negative) before recovering
-- InfoNCE is very volatile and struggles to converge
+- Baseline, Cosine, and CKA all decrease smoothly and converge near ~0.38 by epoch 5
+- InfoNCE decreases faster than the others, reaching ~0.18 by epoch 5 — the contrastive objective accelerates task-loss minimization
+- CLUB diverges: its loss goes negative immediately and hits the −50 clamp by epoch 2, staying clamped throughout. Despite this, the task loss continues to train because the MI loss is separate
 
 **Validation Accuracy (top middle):**
-- **Cosine** and **CKA** both maintain accuracy close to Baseline (~0.64-0.65)
-- **CLUB** drops to ~0.60 — the MI penalty is too aggressive with learned estimators
-- **InfoNCE** collapses to ~0.53 — the contrastive loss fights with the task loss
+- **Baseline** peaks around epoch 3–4 (~0.703) then settles at 0.6980
+- **InfoNCE** starts slow (~0.600 at epoch 1) because the contrastive loss competes with the task loss early on, then catches up rapidly, surpassing all other strategies by epoch 4–5
+- **CLUB** tracks below all others throughout (~0.687 final)
+- **Cosine** and **CKA** are stable but converge slightly below Baseline (~0.688 and ~0.691)
 
 **MI Regularisation Loss (top right):**
-- **CKA is the most stable** — nearly flat line, no spikes
-- **Cosine** is also stable but slightly noisier
-- **CLUB** starts high and decreases as its internal network learns
-- **InfoNCE** is unstable throughout
+- **Cosine** and **CKA** are flat near zero throughout — the most stable estimators
+- **InfoNCE** starts around −5 and gradually decreases to ~−20, stable but non-trivial
+- **CLUB** hits the −50 clamp by epoch 2 and stays there — completely diverged. The CLUB internal network fails to keep up with the representation changes, saturating at the loss boundary
 
 **Final Accuracy (bottom left):**
-- Cosine: ~0.6493 (best, slightly above Baseline)
-- Baseline: ~0.6480
-- CKA: ~0.6413 (competitive, slight drop)
-- CLUB: ~0.5960 (significant drop)
-- InfoNCE: ~0.5347 (collapsed)
+- InfoNCE: **0.7000** (best, +0.20% vs Baseline)
+- Baseline: 0.6980
+- CKA: 0.6913 (−0.67%)
+- Cosine: 0.6880 (−1.00%)
+- CLUB: 0.6873 (−1.07%, worst)
 
 **Contradiction Rate (bottom middle) — lower is better:**
-- **CLUB: lowest contradiction rate** (~0.462) — but at a significant accuracy cost (-5.2%)
-- **CKA** matches Baseline (~0.476) while preserving accuracy — the best trade-off
-- **Cosine** and **InfoNCE** both have *higher* contradiction rates than the Baseline (~0.498 and ~0.512 respectively), meaning they actually hurt logical consistency
+- **InfoNCE: 0.4120 (best, −1.80% reduction vs Baseline)**
+- **Cosine: 0.4140 (second best, −1.60% reduction)**
+- Baseline: 0.4300
+- CLUB: 0.4300 (no change — ties Baseline exactly)
+- **CKA: 0.4240 (smallest reduction, only −0.60%)**
 
 ## Key takeaways
 
-### CKA offers the best accuracy-consistency trade-off
+### InfoNCE offers the best accuracy-consistency trade-off
 
-CKA maintains near-Baseline accuracy (~0.641 vs 0.648) and matches the Baseline contradiction rate (~0.476) — while being the most stable during training. It doesn't *hurt* consistency the way Cosine and InfoNCE do, and it doesn't tank accuracy the way CLUB does.
+InfoNCE achieves both the highest final accuracy (0.7000, +0.20% vs Baseline) and the largest contradiction rate reduction (0.4120, −1.80%). Despite a slow start at epoch 1, the contrastive estimator converges powerfully and outperforms all other strategies on both metrics simultaneously.
 
-CLUB technically achieves the lowest contradiction rate (~0.462), but at a steep accuracy cost (-5.2%). That's not a useful trade-off in practice.
+### CLUB diverges — but the task still trains
 
-### Parameter-free methods are far more stable
+CLUB's MI loss hits the −50 clamp at epoch 2 and never recovers. The internal variational network saturates completely. Despite this, the task loss continues to train (they are separate objectives), which is why CLUB still achieves 0.6873 accuracy. However, because the MI penalty is effectively disabled after epoch 2, CLUB provides no contradiction reduction whatsoever (ties Baseline at 0.4300).
 
-CKA and Cosine produce smooth, predictable training curves. CLUB and InfoNCE add extra learnable networks that fight with the main task loss — CLUB diverges early before recovering, and InfoNCE never stabilizes. For a regularization technique, stability is critical.
+### Parameter-free methods are stable but not the strongest
 
-### Cosine similarity is misleading for redundancy
+CKA and Cosine produce flat, near-zero MI loss curves throughout training — the most stable behavior. However, stability does not translate into the best outcomes: Cosine achieves −1.60% contradiction reduction and CKA only −0.60%. InfoNCE, despite its non-trivial MI loss trajectory, outperforms both on every metric.
 
-Cosine *raises* the contradiction rate compared to Baseline (~0.498 vs 0.476). This makes sense: cosine only measures point-wise angular similarity. Two layers can learn the same information in a rotated basis and look "different" to cosine — so the penalty doesn't catch real redundancy. CKA, which compares representational *geometry* across the batch, avoids this pitfall.
+### CKA provides the weakest contradiction improvement
+
+CKA is the least effective strategy for reducing contradictions (+0.60% reduction), despite being the most commonly favored for representational analysis. CKA's batch-level geometry comparison may smooth out the signal too aggressively, producing a penalty that is too weak to force meaningful layer differentiation.
 
 ### Summary table
 
-| Model | Accuracy | Contradiction Rate | Stability |
-|-------|----------|-------------------|-----------|
-| Baseline | ~0.648 | ~0.476 | N/A |
-| MITR-CLUB | ~0.596 | **~0.462 (lowest)** | Unstable early |
-| MITR-InfoNCE | ~0.535 | ~0.512 (worst) | Very unstable |
-| MITR-Cosine | ~0.649 | ~0.498 | Stable |
-| **MITR-CKA** | **~0.641** | **~0.476** | **Most stable** |
+| Model | Accuracy | Acc Delta | Contradiction Rate | Contra Reduction |
+|-------|----------|-----------|--------------------|-----------------|
+| Baseline | 0.6980 | — | 0.4300 | — |
+| **MITR-InfoNCE** | **0.7000** | **+0.20%** | **0.4120** | **+1.80%** |
+| MITR-Cosine | 0.6880 | −1.00% | 0.4140 | +1.60% |
+| MITR-CKA | 0.6913 | −0.67% | 0.4240 | +0.60% |
+| MITR-CLUB | 0.6873 | −1.07% | 0.4300 | +0.00% |
 
 ### Bottom line
 
-If you care about **accuracy only** -> Cosine (or just Baseline)
+If you care about **accuracy only** → InfoNCE (0.7000, only strategy to beat Baseline)
 
-If you care about **logical consistency at any cost** -> CLUB gets the lowest contradiction rate, but sacrifices ~5% accuracy
+If you care about **logical consistency** → InfoNCE again (0.4120, largest contradiction reduction)
 
-If you care about **the best trade-off** -> CKA preserves accuracy while not degrading consistency, and trains the most stably — it's the safest and most principled choice
+If you care about **training stability at all costs** → Cosine or CKA (flat MI loss curves), with Cosine giving better consistency than CKA
+
+**CLUB should not be used** — it diverges completely and provides no contradiction benefit over Baseline
 
 ## Setup
 
